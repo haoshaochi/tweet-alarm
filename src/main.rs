@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::prelude::*;
 use chrono::{NaiveDateTime, DateTime, Local, TimeZone};
 use std::process::Command;
 use std::ops::{Div, Sub};
@@ -160,8 +158,8 @@ async fn output_btc_tick(tid: &i64) -> f64 {
 ///
 async fn track_price(tid: &i64, base_price: f64) -> f64 {
     let mut range = 0.0;
-    for _i in 0..TRACK_PRICE_CNT {
-        println!("[tid:{}]track btc price, waiting for {}s...", tid, TRACK_PRICE_INTERVAL);
+    for i in 0..TRACK_PRICE_CNT {
+        println!("[tid:{}]track btc price({}), waiting for {}s...", tid,i, TRACK_PRICE_INTERVAL);
         thread::sleep(Duration::from_secs(TRACK_PRICE_INTERVAL as u64));
         let btc_tick = get_btc_price().await;
         if let Err(str) = btc_tick {
@@ -219,20 +217,30 @@ fn monitor_tweet(last_time: &i64) -> Result<Tweet, String> {
     }
 
     //4. 处理抓取的tweets
-    let file = File::open(TWEET_FILE_PATH);
+    let tweets:Vec<_> = output_str.split("\n").collect();
+    let first = tweets.get(0).unwrap().to_string();
+    println!("当前最新tweet:{}", first);
+    let first_vec:Vec<_> = first.split(" ").collect();
+
+    //4.1 分析tweet内容
+    let str_date = first_vec.get(1).unwrap().to_string() + " " + first_vec.get(2).unwrap() + first_vec.get(3).unwrap();
+
+    let mut tweet_content = String::new();
+    for i in 5..first_vec.len() {
+        tweet_content += first_vec.get(i).unwrap();
+    }
+    println!("tweet_date:{},content:{}",str_date,tweet_content);
+
+    /*let file = File::open(String::from(TWEET_FILE_PATH));
     if file.is_err() {
         return Err(file.err().unwrap().to_string());
     }
-
-    //4.1 取最新的tweet
     let mut fin = std::io::BufReader::new(file.unwrap());
     let mut line = String::new();
     fin.read_line(&mut line).unwrap();
     println!("当前最新tweet:{}", line);
-
-    //4.2 分析tweet内容
     let values: Value = serde_json::from_str::<Value>(&line.as_str()).unwrap();
-    let str_date = values["date"].as_str().unwrap().to_string() + " " + values["time"].as_str().unwrap() + values["timezone"].as_str().unwrap();
+    let str_date = values["date"].as_str().unwrap().to_string() + " " + values["time"].as_str().unwrap() + values["timezone"].as_str().unwrap();*/
 
     let fmt = "%Y-%m-%d %H:%M:%S %z";
     let result = DateTime::parse_from_str(str_date.as_str(), fmt);
@@ -243,14 +251,14 @@ fn monitor_tweet(last_time: &i64) -> Result<Tweet, String> {
     }
     let secs = result.unwrap().timestamp();
 
-    //4.3 检查是否已经处理过
+    //4.2 检查是否已经处理过
     if secs.le(last_time) {
         return Err("not new tweet".to_string());
     }
 
     Ok(Tweet {
         time: secs,
-        content: values["tweet"].as_str().unwrap().to_string(),
+        content: tweet_content,
     })
 }
 
@@ -272,6 +280,7 @@ fn gen_cmd(last_time: &i64) -> String {
         .replace("{USER}", TWEET_USER_NAME)
         .replace("{DATE}", start_date.as_str())
         .replace("{FILE_PATH}", TWEET_FILE_PATH);
+
     println!("执行命令:{}", cmd_str);
     cmd_str
 }
