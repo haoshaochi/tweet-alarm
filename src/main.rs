@@ -2,14 +2,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use chrono::{NaiveDateTime, DateTime, Local, TimeZone};
 use std::process::Command;
-use std::ops::{Div};
+use std::ops::{Div, Sub};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use serde_json::Value;
 use tokio::runtime::Runtime;
-use std::error::Error;
-use std::fmt::Debug;
+use time::Duration as DurationX;
 
 
 ///
@@ -23,7 +22,8 @@ const LINUX_TWINT_PATH: &str = "./twint";
 const CMD_STR: &str = "{TWINT} -u {USER} --since {DATE} -o {FILE_PATH} --json --limit 1";
 
 // 跟踪的twitter用户
-const TWEET_USER_NAME: &str = "ElonMusk";
+const TWEET_USER_NAME: &str = "RunzeHao";
+//ElonMusk
 // tweet信息存储路径
 const TWEET_FILE_PATH: &str = "./file.txt";
 
@@ -95,33 +95,45 @@ fn main() {
         tweets: Vec::new(),
     };
 
-    let mut last_time = db.last_time;
+    //tweet的初始时间为2分钟前，追踪btc price才有意义
+    let mut last_time = two_minutes_before();
     let mtx = Arc::new(Mutex::new(db));
     let mut result_list = Vec::new();
 
     loop {
         //扫描是否有新的tweet发布, 如果返回成功则开启线程去处理tweet并更新db
-        if let Ok(tweet) = monitor_tweet(&last_time) {
-            last_time = tweet.time;
+        match monitor_tweet(&last_time) {
+            Ok(tweet) => {
+                last_time = tweet.time;
+                let lock = Arc::clone(&mtx);
+                // alarm
+                println!("[tid:{}]tweet published, estimated success rate:{:.3}%", tweet.time, lock.lock().unwrap().suc_rate * 100.0);
 
-            let lock = Arc::clone(&mtx);
-            // alarm
-            println!("[tid:{}]tweet published, estimated success rate:{:.3}%", tweet.time, lock.lock().unwrap().suc_rate * 100.0);
-
-            //新建线程去处理每个新的tweet
-            let ans = thread::spawn(move || {
-                output(lock, tweet);
-            });
-            result_list.push(ans);
+                //新建线程去处理每个新的tweet
+                let ans = thread::spawn(move || {
+                    output(lock, tweet);
+                });
+                result_list.push(ans);
+            }
+            Err(str) => println!("monitor tweet result: {}", str),
         }
 
-        //30秒后再次扫描twitter
-
+        println!("30s后再次扫描twitter....");
         thread::sleep(Duration::from_secs(30));
     }
 }
 
-// 输出
+///
+/// 取2分钟前的时间
+///
+fn two_minutes_before() -> i64 {
+    Local::now().sub(DurationX::seconds(2)).timestamp()
+}
+
+///
+/// 输出btc初始价格 并持续追踪价格变化
+/// 并将新的tweet信息和成功率率更新到db
+///
 fn output(lock: Arc<Mutex<TweetDb>>, tweet: Tweet) {
     let range = Runtime::new()
         .expect("Failed to create runtime")
@@ -129,9 +141,13 @@ fn output(lock: Arc<Mutex<TweetDb>>, tweet: Tweet) {
 
     let mut db = lock.lock().unwrap();
     db.add(tweet, range.ge(&0.0));
-    println!("{:#?}", db);
+    println!("当前tweets db信息:{:#?}", db);
 }
 
+///
+/// 输出btc初始价格
+/// 并持续追踪价格变化
+///
 async fn output_btc_tick(tid: &i64) -> f64 {
     println!("[tid:{}]try to get base data...", tid);
     let btc_tick = get_btc_price().await.unwrap();
@@ -209,7 +225,7 @@ fn monitor_tweet(last_time: &i64) -> Result<Tweet, String> {
     }
 
     //4.1 取最新的tweet
-    let mut fin = std::io::BufReader::new(file);
+    let mut fin = std::io::BufReader::new(file.unwrap());
     let mut line = String::new();
     fin.read_line(&mut line).unwrap();
     println!("当前最新tweet:{}", line);
@@ -249,14 +265,14 @@ fn gen_cmd(last_time: &i64) -> String {
     };
     let fmt = "%Y-%m-%d";
     let naive = NaiveDateTime::from_timestamp(*last_time, 0);
-    let mut start_date = Local.from_utc_datetime(&naive).date().format(fmt).to_string();
+    let start_date = Local.from_utc_datetime(&naive).date().format(fmt).to_string();
 
     let cmd_str = CMD_STR
         .replace("{TWINT}", twint_str)
         .replace("{USER}", TWEET_USER_NAME)
         .replace("{DATE}", start_date.as_str())
         .replace("{FILE_PATH}", TWEET_FILE_PATH);
-    println!("要执行的命令为:{}", cmd_str);
+    println!("执行命令:{}", cmd_str);
     cmd_str
 }
 
