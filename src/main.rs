@@ -29,9 +29,9 @@ const TWEET_FILE_PATH: &str = "./file.txt";
 const BTC_TICK_URL: &str = "https://api.huobi.pro/market/detail/merged?symbol=btcusdt";
 
 // tweet后, btc价格追踪次数
-const TRACK_PRICE_CNT: i32 = 2;
+const TRACK_PRICE_CNT: i32 = 10;
 // btc价格追踪的时间间隔
-const TRACK_PRICE_INTERVAL: i32 = 10;
+const TRACK_PRICE_INTERVAL: i32 = 30;
 
 
 ///
